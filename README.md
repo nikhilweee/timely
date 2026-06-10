@@ -15,12 +15,9 @@ A minimal menu bar timer for macOS.
 brew install --cask nikhilweee/tap/timely
 ```
 
-The app is ad-hoc signed (no Apple Developer account), so Gatekeeper may
-block the first launch. If it does, clear the quarantine flag and try again:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Timely.app
-```
+Then launch Timely from /Applications. The app is ad-hoc signed (no Apple
+Developer account); the cask clears the quarantine flag after install so
+Gatekeeper doesn't block the first launch.
 
 ## Build from source
 
