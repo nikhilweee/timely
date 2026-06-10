@@ -13,9 +13,10 @@ fi
 
 # Assemble the app bundle
 rm -rf Timely.app Timely.zip
-mkdir -p Timely.app/Contents/MacOS
+mkdir -p Timely.app/Contents/MacOS Timely.app/Contents/Resources
 cp "$BIN" Timely.app/Contents/MacOS/Timely
 cp Resources/Info.plist Timely.app/Contents/Info.plist
+cp Resources/AppIcon.icns Timely.app/Contents/Resources/AppIcon.icns
 
 # Ad-hoc sign and zip for distribution
 codesign --force --sign - Timely.app
