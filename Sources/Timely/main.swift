@@ -1,11 +1,16 @@
 import AppKit
 
-let intervals: [(label: String, seconds: Int)] = [
-    ("15 sec", 15), ("30 sec", 30),
-    ("1 min", 60), ("2 min", 120), ("5 min", 300),
-    ("10 min", 600), ("15 min", 900), ("20 min", 1200),
-    ("30 min", 1800), ("1 hour", 3600),
-]
+let defaultIntervals = [60, 300, 900, 1800]
+
+// 90 -> "1 min 30 sec", 3600 -> "1 hr": for menu items
+func menuLabel(_ seconds: Int) -> String {
+    let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
+    var parts: [String] = []
+    if h > 0 { parts.append("\(h) hr") }
+    if m > 0 { parts.append("\(m) min") }
+    if s > 0 { parts.append("\(s) sec") }
+    return parts.joined(separator: " ")
+}
 
 class AppDelegate: NSObject, NSApplicationDelegate {
     enum State { case idle, running, paused, finished }
@@ -19,9 +24,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var flashTimer: Timer?
     var flashOn = true
 
+    let settings = SettingsController()
+
     var clickToPause: Bool {
-        get { UserDefaults.standard.bool(forKey: "clickToPause") }
-        set { UserDefaults.standard.set(newValue, forKey: "clickToPause") }
+        UserDefaults.standard.bool(forKey: "clickToPause")
+    }
+
+    var finishOpensMenu: Bool {
+        UserDefaults.standard.bool(forKey: "finishOpensMenu")
+    }
+
+    var intervals: [Int] {
+        if let saved = UserDefaults.standard.array(forKey: "intervals") as? [Int], !saved.isEmpty {
+            return saved
+        }
+        return defaultIntervals
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -130,7 +147,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .paused:
             resume()
         case .finished:
-            start(interval)
+            // The flash keeps going behind the menu until an action is picked
+            if finishOpensMenu {
+                showMenu(withCancel: true)
+            } else {
+                start(interval)
+            }
         }
     }
 
@@ -142,24 +164,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(cancel)
             menu.addItem(.separator())
         }
-        for (label, seconds) in intervals {
-            let item = NSMenuItem(title: label, action: #selector(pick(_:)), keyEquivalent: "")
+        for seconds in intervals {
+            let item = NSMenuItem(title: menuLabel(seconds), action: #selector(pick(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = seconds
             menu.addItem(item)
         }
+        let custom = NSMenuItem(title: "Custom…", action: #selector(customTimer), keyEquivalent: "")
+        custom.target = self
+        menu.addItem(custom)
         menu.addItem(.separator())
-        let clickTo = NSMenuItem(title: "Click to", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        for (title, pauses) in [("Pause", true), ("Restart", false)] {
-            let item = NSMenuItem(title: title, action: #selector(setClickAction(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = pauses
-            item.state = clickToPause == pauses ? .on : .off
-            submenu.addItem(item)
-        }
-        clickTo.submenu = submenu
-        menu.addItem(clickTo)
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
         menu.addItem(.separator())
         // Custom selector instead of terminate(_:): keeps Tahoe from adding an icon
         let quit = NSMenuItem(title: "Quit Timely", action: #selector(quit), keyEquivalent: "q")
@@ -181,8 +198,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         showIdle()
     }
 
-    @objc func setClickAction(_ sender: NSMenuItem) {
-        clickToPause = sender.representedObject as? Bool ?? false
+    @objc func showSettings() {
+        settings.show()
+    }
+
+    @objc func customTimer() {
+        let alert = NSAlert()
+        alert.messageText = "Custom Timer"
+        alert.informativeText = "Examples: 25, 90s, 1:30, 1h 10m"
+        alert.addButton(withTitle: "Start")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 200, height: 24))
+        alert.accessoryView = field
+        alert.window.initialFirstResponder = field
+        activateApp()
+        if alert.runModal() == .alertFirstButtonReturn, let seconds = parseDuration(field.stringValue) {
+            start(seconds)
+        }
     }
 
     @objc func quit() {
@@ -201,4 +233,21 @@ let app = NSApplication.shared
 let delegate = AppDelegate()
 app.delegate = delegate
 app.setActivationPolicy(.accessory)
+
+// Accessory apps never show this menu, but cmd+C/V/X/A/Z only work for text
+// inputs when an Edit menu exists to route the key equivalents
+let editMenu = NSMenu(title: "Edit")
+editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+editMenu.addItem(.separator())
+editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+let editItem = NSMenuItem()
+editItem.submenu = editMenu
+let mainMenu = NSMenu()
+mainMenu.addItem(editItem)
+app.mainMenu = mainMenu
+
 app.run()

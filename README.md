@@ -2,12 +2,14 @@
 
 A minimal menu bar timer for macOS.
 
-- Click the timer icon and pick an interval (15 sec to 1 hour) to start.
+- Click the timer icon and pick an interval, or choose Custom… and type any
+  duration (`25`, `90s`, `1:30`, `1h 10m`).
 - While running, the menu bar shows a live countdown. Left-click restarts the
-  current interval (or pauses it, via the "Click to" setting in the menu);
-  right-click shows a menu with Cancel and the intervals.
+  current interval or pauses it; right-click shows a menu with Cancel and the
+  intervals.
 - When the timer finishes, the menu bar flashes. Click to restart the same
-  interval.
+  interval, or to open the menu.
+- Settings… configures the click behaviors and the interval list.
 
 ## Install
 
