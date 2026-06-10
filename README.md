@@ -27,17 +27,3 @@ open Timely.app
 ```
 
 Produces a universal `Timely.app` and a `Timely.zip` for distribution.
-
-## Releasing
-
-1. Bump `CFBundleShortVersionString` in `Resources/Info.plist` and `version`
-   in `Casks/timely.rb`.
-2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`. The GitHub
-   Actions workflow builds the app and creates a release with `Timely.zip`.
-3. Update the `sha256` in `Casks/timely.rb` from the workflow output (or run
-   `shasum -a 256 Timely.zip` on the release asset), then copy the cask to the
-   [`homebrew-tap`](https://github.com/nikhilweee/homebrew-tap) repo as
-   `Casks/timely.rb` and push.
-
-One-time setup: create the `nikhilweee/timely` and `nikhilweee/homebrew-tap`
-repos on GitHub, then push this project to the former.
