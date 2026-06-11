@@ -1,5 +1,5 @@
 cask "timely" do
-  version "0.2.0"
+  version "0.3.0"
   sha256 "ca45d18a5239b1477158be7f5742f15e28b9ed02bc317ba264323d1ab9d1a814"
 
   url "https://github.com/nikhilweee/timely/releases/download/v#{version}/Timely.zip"
