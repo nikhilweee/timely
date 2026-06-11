@@ -1,7 +1,5 @@
 import AppKit
 
-let defaultIntervals = [60, 300, 900, 1800]
-
 // 90 -> "1 min 30 sec", 3600 -> "1 hr": for menu items
 func menuLabel(_ seconds: Int) -> String {
     let h = seconds / 3600, m = (seconds % 3600) / 60, s = seconds % 60
@@ -26,22 +24,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     let settings = SettingsController()
 
-    var clickToPause: Bool {
-        UserDefaults.standard.bool(forKey: "clickToPause")
-    }
-
-    var finishOpensMenu: Bool {
-        UserDefaults.standard.bool(forKey: "finishOpensMenu")
-    }
-
-    var intervals: [Int] {
-        if let saved = UserDefaults.standard.array(forKey: "intervals") as? [Int], !saved.isEmpty {
-            return saved
-        }
-        return defaultIntervals
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
+        Prefs.register()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
             button.target = self
@@ -79,7 +63,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     // Dim the countdown so a paused timer reads as paused
-    func pause() {
+    @objc func pause() {
         state = .paused
         stopTimers()
         remaining = max(1, Int(endDate.timeIntervalSinceNow.rounded()))
@@ -89,7 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
 
-    func resume() {
+    @objc func resume() {
         run(remaining)
     }
 
@@ -106,24 +90,42 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         state = .finished
         stopTimers()
         statusItem.button?.image = nil
+        startFlash()
+    }
+
+    func startFlash() {
         flashOn = true
-        setFlashTitle()
+        updateFlash()
         let timer = Timer(timeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.flashOn.toggle()
-            self.setFlashTitle()
+            self.updateFlash()
         }
         RunLoop.main.add(timer, forMode: .common)
         flashTimer = timer
     }
 
-    // Flash by toggling text color: keeps the status item width stable
-    func setFlashTitle() {
-        let color: NSColor = flashOn ? .controlTextColor : .clear
-        statusItem.button?.attributedTitle = NSAttributedString(
-            string: format(interval),
-            attributes: [.foregroundColor: color]
-        )
+    func updateFlash() {
+        guard let button = statusItem.button else { return }
+        if Prefs.flashHighlight {
+            // Invert: the background takes the text color and vice versa
+            button.wantsLayer = true
+            let dark = button.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            let textColor: NSColor = flashOn ? (dark ? .black : .white) : .controlTextColor
+            button.layer?.cornerRadius = button.bounds.height / 2
+            button.layer?.backgroundColor = flashOn ? (dark ? NSColor.white : NSColor.black).cgColor : nil
+            button.attributedTitle = NSAttributedString(
+                string: format(interval),
+                attributes: [.foregroundColor: textColor]
+            )
+        } else {
+            // Toggling text color instead of the text keeps the width stable
+            button.layer?.backgroundColor = nil
+            button.attributedTitle = NSAttributedString(
+                string: format(interval),
+                attributes: [.foregroundColor: flashOn ? NSColor.controlTextColor : .clear]
+            )
+        }
     }
 
     func stopTimers() {
@@ -131,6 +133,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         tickTimer = nil
         flashTimer?.invalidate()
         flashTimer = nil
+        statusItem.button?.layer?.backgroundColor = nil
     }
 
     // MARK: - Clicks and menu
@@ -143,50 +146,69 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         case .running where rightClick, .paused where rightClick, .finished where rightClick:
             showMenu(withCancel: true)
         case .running:
-            clickToPause ? pause() : start(interval)
+            Prefs.clickToPause ? pause() : start(interval)
         case .paused:
             resume()
         case .finished:
-            // The flash keeps going behind the menu until an action is picked
-            if finishOpensMenu {
-                showMenu(withCancel: true)
-            } else {
-                start(interval)
-            }
+            Prefs.finishOpensMenu ? showMenu(withCancel: true) : start(interval)
         }
     }
 
     func showMenu(withCancel: Bool) {
         let menu = NSMenu()
         if withCancel {
-            let cancel = NSMenuItem(title: "Cancel Timer", action: #selector(cancelTimer), keyEquivalent: "")
-            cancel.target = self
-            menu.addItem(cancel)
+            if state == .running {
+                addItem(menu, "Pause Timer", #selector(pause))
+            } else if state == .paused {
+                addItem(menu, "Resume Timer", #selector(resume))
+            }
+            addItem(menu, "Cancel Timer", #selector(cancelTimer))
             menu.addItem(.separator())
         }
-        for seconds in intervals {
-            let item = NSMenuItem(title: menuLabel(seconds), action: #selector(pick(_:)), keyEquivalent: "")
-            item.target = self
-            item.representedObject = seconds
-            menu.addItem(item)
+        for seconds in Prefs.intervals {
+            addItem(menu, menuLabel(seconds), #selector(pick(_:)), represents: seconds)
         }
-        let custom = NSMenuItem(title: "Custom…", action: #selector(customTimer), keyEquivalent: "")
-        custom.target = self
-        menu.addItem(custom)
+        addItem(menu, "Custom…", #selector(customTimer))
         menu.addItem(.separator())
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settingsItem.target = self
-        menu.addItem(settingsItem)
+        addItem(menu, "Settings…", #selector(showSettings), key: ",")
         menu.addItem(.separator())
         // Custom selector instead of terminate(_:): keeps Tahoe from adding an icon
-        let quit = NSMenuItem(title: "Quit Timely", action: #selector(quit), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
+        addItem(menu, "Quit Timely", #selector(quit), key: "q")
+
+        // Suspend the flash while the menu is open: the inverted background
+        // fights the system's menu highlight
+        let wasFlashing = flashTimer != nil
+        if wasFlashing {
+            flashTimer?.invalidate()
+            flashTimer = nil
+            statusItem.button?.layer?.backgroundColor = nil
+            statusItem.button?.attributedTitle = NSAttributedString(
+                string: format(interval),
+                attributes: [.foregroundColor: NSColor.controlTextColor]
+            )
+        }
 
         // Temporarily attach the menu so a programmatic click opens it
         statusItem.menu = menu
         statusItem.button?.performClick(nil)
         statusItem.menu = nil
+
+        if wasFlashing {
+            // Async so a chosen menu action settles state first; resume the
+            // flash only if the menu closed without one
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.state == .finished, self.flashTimer == nil else { return }
+                self.startFlash()
+            }
+        }
+    }
+
+    private func addItem(_ menu: NSMenu, _ title: String, _ action: Selector,
+                         key: String = "", represents: Any? = nil) {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        item.target = self
+        item.representedObject = represents
+        menu.addItem(item)
     }
 
     @objc func pick(_ sender: NSMenuItem) {
